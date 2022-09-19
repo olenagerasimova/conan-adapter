@@ -323,7 +323,7 @@ class ConanSliceITCase {
                 .env("DEBIAN_FRONTEND", "noninteractive")
                 .env("no_proxy", "host.docker.internal,host.testcontainers.internal,localhost,127.0.0.1")
                 .workDir("/home")
-                .run("apt update -y -o APT::Update::Error-Mode=any")
+                .run("apt clean -y && apt update -y -o APT::Update::Error-Mode=any")
                 .run("apt install --no-install-recommends -y python3-pip curl g++ git make cmake")
                 .run("pip3 install -U pip setuptools")
                 .run("pip3 install -U conan==1.50.0")
