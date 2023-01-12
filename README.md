@@ -165,6 +165,8 @@ See also Artipie Conan adapter [Javadoc](https://www.javadoc.io/doc/com.artipie/
 
 ## How to configure and start Artipie Conan endpoint
 
+See example in `src/main/java/com/artipie/conan/Cli.java`
+
 ## How to switch Conan to V2 API
 
 Conan client uses V1 API by default, as it's more stable. Anyway, both V1 and V2 APIs aren't public, so they could change. The conan_server supports both APIs by default.
