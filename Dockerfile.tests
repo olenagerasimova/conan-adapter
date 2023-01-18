@@ -5,6 +5,8 @@ ENV CONAN_TRACE_FILE "/tmp/conan_trace.log"
 ENV DEBIAN_FRONTEND "noninteractive"
 ENV CONAN_VERBOSE_TRACEBACK 1
 ENV CONAN_NON_INTERACTIVE 1
+ENV CONAN_LOGIN_USERNAME demo
+ENV CONAN_LOGIN_PASSWORD demo
 ENV no_proxy "host.docker.internal,host.testcontainers.internal,localhost,127.0.0.1"
 WORKDIR "/home"
 RUN apt clean -y && apt update -y -o APT::Update::Error-Mode=any

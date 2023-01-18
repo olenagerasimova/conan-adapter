@@ -23,10 +23,12 @@
  */
 package com.artipie.conan.http;
 
-import com.artipie.asto.Storage;
 import com.artipie.http.Response;
 import com.artipie.http.Slice;
 import com.artipie.http.async.AsyncResponse;
+import com.artipie.http.auth.Authentication;
+import com.artipie.http.auth.BasicAuthScheme;
+import com.artipie.http.auth.Tokens;
 import com.artipie.http.rq.RequestLineFrom;
 import com.artipie.http.rs.RsWithBody;
 import com.artipie.http.rs.RsWithHeaders;
@@ -82,53 +84,53 @@ public final class UsersEntity {
     public static final class UserAuth implements Slice {
 
         /**
-         * Current Artipie storage instance.
+         * Current auth implemenation.
          */
-        private final Storage storage;
+        private final Authentication auth;
+
+        /**
+         * User token generator.
+         */
+        private final Tokens tokens;
 
         /**
          * Ctor.
-         * @param storage Current Artipie storage instance.
+         * @param auth Login authentication for the user.
+         * @param tokens Auth. token genrator for the user.
          */
-        public UserAuth(final Storage storage) {
-            this.storage = storage;
+        public UserAuth(final Authentication auth, final Tokens tokens) {
+            this.auth = auth;
+            this.tokens = tokens;
         }
 
         @Override
         public Response response(final String line,
             final Iterable<Map.Entry<String, String>> headers, final Publisher<ByteBuffer> body) {
             return new AsyncResponse(
-                CompletableFuture.supplyAsync(new RequestLineFrom(line)::uri).thenCompose(
-                    uri -> UserAuth.userAuth().thenApply(
-                        content -> {
-                            final Response result;
-                            if (Strings.isNullOrEmpty(content)) {
-                                result = new RsWithBody(
-                                    StandardRs.NOT_FOUND,
-                                    String.format(UsersEntity.URI_S_NOT_FOUND, uri),
-                                    StandardCharsets.UTF_8
-                                );
-                            } else {
-                                result = new RsWithHeaders(
-                                    new RsWithBody(
-                                        StandardRs.OK, content, StandardCharsets.UTF_8
-                                    ),
-                                    UsersEntity.CONTENT_TYPE, UsersEntity.JSON_TYPE
-                                );
-                            }
-                            return result;
+                new BasicAuthScheme(this.auth).authenticate(headers).thenApply(
+                    usr -> {
+                        final String token = this.tokens.generate(usr.user().get());
+                        final Response result;
+                        if (Strings.isNullOrEmpty(token)) {
+                            result = new RsWithBody(
+                                StandardRs.NOT_FOUND,
+                                String.format(
+                                    UsersEntity.URI_S_NOT_FOUND, new RequestLineFrom(line).uri()
+                                ),
+                                StandardCharsets.UTF_8
+                            );
+                        } else {
+                            result = new RsWithHeaders(
+                                new RsWithBody(
+                                    StandardRs.OK, token, StandardCharsets.UTF_8
+                                ),
+                                UsersEntity.CONTENT_TYPE, "text/plain"
+                            );
                         }
-                    )
+                        return result;
+                    }
                 )
             );
-        }
-
-        /**
-         * Does user auth logic for Conan HTTP request.
-         * @return Json string response.
-         */
-        private static CompletableFuture<String> userAuth() {
-            return CompletableFuture.completedFuture("{}");
         }
     }
 
@@ -137,19 +139,6 @@ public final class UsersEntity {
      * @since 0.1
      */
     public static final class CredsCheck implements Slice {
-
-        /**
-         * Current Artipie storage instance.
-         */
-        private final Storage storage;
-
-        /**
-         * Ctor.
-         * @param storage Current Artipie storage instance.
-         */
-        public CredsCheck(final Storage storage) {
-            this.storage = storage;
-        }
 
         @Override
         public Response response(final String line,

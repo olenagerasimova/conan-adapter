@@ -28,12 +28,15 @@ import com.artipie.asto.Storage;
 import com.artipie.asto.memory.InMemoryStorage;
 import com.artipie.asto.test.TestResource;
 import com.artipie.http.auth.Authentication;
-import com.artipie.http.auth.Permissions;
+import com.artipie.http.auth.TokenAuthentication;
+import com.artipie.http.auth.Tokens;
 import com.artipie.http.slice.LoggingSlice;
 import com.artipie.vertx.VertxSliceServer;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import org.hamcrest.MatcherAssert;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
@@ -54,6 +57,21 @@ import org.testcontainers.images.builder.Transferable;
  */
 @SuppressWarnings({"PMD.AvoidDuplicateLiterals", "PMD.TooManyMethods"})
 class ConanSliceITCase {
+
+    /**
+     * Artipie conan username for basic auth.
+     */
+    public static final String SRV_USERNAME = "demo";
+
+    /**
+     * Artipie conan password for basic auth.
+     */
+    public static final String SRV_PASSWORD = "demo";
+
+    /**
+     * Test auth token.
+     */
+    public static final String TOKEN = "demotoken";
 
     /**
      * Path prefix for conan repository test data.
@@ -294,9 +312,13 @@ class ConanSliceITCase {
         this.server = new VertxSliceServer(
             new LoggingSlice(
                 new ConanSlice(
-                    this.storage, Permissions.FREE, Authentication.ANONYMOUS
-                )
-            ),
+                    this.storage,
+                    (user, action) -> ConanSliceITCase.SRV_USERNAME.equals(user.name()),
+                    new Authentication.Single(
+                        ConanSliceITCase.SRV_USERNAME, ConanSliceITCase.SRV_PASSWORD
+                    ),
+                    new FakeAuthTokens()
+            )),
             ConanSliceITCase.CONAN_PORT
         );
         final int port = this.server.start();
@@ -306,7 +328,11 @@ class ConanSliceITCase {
             .withReuse(true)
             .withAccessToHost(true);
         this.cntn.start();
-        this.cntn.execInContainer("bash", "-c", "pwd;ls -lah;env;cat /tmp/env.log");
+        this.cntn.execInContainer("bash", "-c", "pwd;ls -lah;env>>/tmp/conan_trace.log");
+        this.cntn.execInContainer(
+            "conan", "user", "-r", "conan-test", ConanSliceITCase.SRV_USERNAME, "-p", ConanSliceITCase.SRV_PASSWORD
+        );
+        this.cntn.execInContainer("bash", "-c", "echo 'STARTED'>>/tmp/conan_trace.log");
     }
 
     /**
@@ -323,6 +349,8 @@ class ConanSliceITCase {
                 .env("DEBIAN_FRONTEND", "noninteractive")
                 .env("CONAN_VERBOSE_TRACEBACK", "1")
                 .env("CONAN_NON_INTERACTIVE", "1")
+                .env("CONAN_LOGIN_USERNAME", ConanSliceITCase.SRV_USERNAME)
+                .env("CONAN_PASSWORD", ConanSliceITCase.SRV_PASSWORD)
                 .env("no_proxy", "host.docker.internal,host.testcontainers.internal,localhost,127.0.0.1")
                 .workDir("/home")
                 .run("apt clean -y && apt update -y -o APT::Update::Error-Mode=any")
@@ -338,5 +366,31 @@ class ConanSliceITCase {
                 .run("conan remote disable conan-center")
                 .build()
         );
+    }
+
+    /**
+     * Fake implementation of {@link Tokens}.
+     * @since 0.5
+     */
+    public static class FakeAuthTokens implements Tokens {
+
+        @Override
+        public TokenAuthentication auth() {
+            return tkn -> {
+                Optional<Authentication.User> res = Optional.empty();
+                if (ConanSliceITCase.TOKEN.equals(tkn)) {
+                    res = Optional.of(new Authentication.User(ConanSliceITCase.SRV_USERNAME));
+                }
+                return CompletableFuture.completedFuture(res);
+            };
+        }
+
+        @Override
+        public String generate(final Authentication.User user) {
+            if (user.name().equals(ConanSliceITCase.SRV_USERNAME)) {
+                return ConanSliceITCase.TOKEN;
+            }
+            throw new IllegalStateException(String.join("Unexpected user: ", user.name()));
+        }
     }
 }
