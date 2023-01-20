@@ -24,7 +24,6 @@
 package com.artipie.conan.http;
 
 import com.artipie.asto.Content;
-import com.artipie.conan.http.ConanSliceITCase.FakeAuthTokens;
 import com.artipie.http.Headers;
 import com.artipie.http.auth.Authentication;
 import com.artipie.http.headers.Authorization;
@@ -59,7 +58,7 @@ public class UsersEntityTest {
                 new Authentication.Single(
                     ConanSliceITCase.SRV_USERNAME, ConanSliceITCase.SRV_PASSWORD
                 ),
-                new FakeAuthTokens()
+                new ConanSlice.FakeAuthTokens(ConanSliceITCase.TOKEN, ConanSliceITCase.SRV_USERNAME)
             ),
             new SliceHasResponse(
                 Matchers.allOf(

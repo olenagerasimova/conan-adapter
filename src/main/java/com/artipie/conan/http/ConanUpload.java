@@ -27,19 +27,24 @@ import com.artipie.ArtipieException;
 import com.artipie.asto.Key;
 import com.artipie.asto.Storage;
 import com.artipie.asto.ext.PublisherAs;
-import com.artipie.conan.ConanRepo;
+import com.artipie.conan.ItemTokenizer;
 import com.artipie.http.Response;
 import com.artipie.http.Slice;
 import com.artipie.http.async.AsyncResponse;
 import com.artipie.http.rq.RequestLineFrom;
 import com.artipie.http.rq.RqHeaders;
+import com.artipie.http.rq.RqParams;
+import com.artipie.http.rs.RsStatus;
 import com.artipie.http.rs.RsWithBody;
 import com.artipie.http.rs.RsWithHeaders;
+import com.artipie.http.rs.RsWithStatus;
 import com.artipie.http.rs.StandardRs;
+import com.artipie.http.slice.SliceUpload;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Matcher;
 import javax.json.Json;
@@ -79,6 +84,11 @@ public final class ConanUpload {
     private static final String URI_PATH = "path";
 
     /**
+     * Host name http header.
+     */
+    private static final String HOST = "Host";
+
+    /**
      * Protocol type for download URIs.
      */
     private static final String PROTOCOL = "http://";
@@ -89,25 +99,9 @@ public final class ConanUpload {
     private static final String PKG_SRC_DIR = "/0/export/";
 
     /**
-     * Asto storage.
+     * Ctor is hidden.
      */
-    @SuppressWarnings({"PMD.UnusedPrivateField", "PMD.SingularField"})
-    private final Storage asto;
-
-    /**
-     * Rpm instance.
-     */
-    @SuppressWarnings({"PMD.UnusedPrivateField", "PMD.SingularField"})
-    private final ConanRepo repo;
-
-    /**
-     * Ctor.
-     * @param storage Storage object.
-     */
-    public ConanUpload(final Storage storage) {
-        this.asto = storage;
-        this.repo = new ConanRepo(storage);
-    }
+    private ConanUpload() { }
 
     /**
      * Match pattern for the request.
@@ -143,7 +137,7 @@ public final class ConanUpload {
     }
 
     /**
-     * Conan /authenticate REST APIs.
+     * Conan /v1/conans/{path}/upload_urls REST APIs.
      * @since 0.1
      */
     public static final class UploadUrls implements Slice {
@@ -154,28 +148,35 @@ public final class ConanUpload {
         private final Storage storage;
 
         /**
+         * Tokenizer for repository items.
+         */
+        private final ItemTokenizer tokenizer;
+
+        /**
          * Ctor.
          *
          * @param storage Current Artipie storage instance.
+         * @param tokenizer Tokenizer for repository items.
          */
-        public UploadUrls(final Storage storage) {
+        public UploadUrls(final Storage storage, final ItemTokenizer tokenizer) {
             this.storage = storage;
+            this.tokenizer = tokenizer;
         }
 
         @Override
         public Response response(final String line,
             final Iterable<Map.Entry<String, String>> headers, final Publisher<ByteBuffer> body) {
             final Matcher matcher = matchRequest(line, ConanUpload.UPLOAD_SRC_PATH);
-            final String filename = matcher.group(ConanUpload.URI_PATH);
-            final String hostname = new RqHeaders.Single(headers, "Host").asString();
+            final String path = matcher.group(ConanUpload.URI_PATH);
+            final String hostname = new RqHeaders.Single(headers, ConanUpload.HOST).asString();
             return new AsyncResponse(
-                this.storage.exists(new Key.From(filename)).thenCompose(
+                this.storage.exists(new Key.From(path)).thenCompose(
                     exist -> {
                         final CompletableFuture<Response> result;
                         if (exist) {
-                            result = generateError(filename);
+                            result = generateError(path);
                         } else {
-                            result = UploadUrls.doUploading(body, filename, hostname);
+                            result = this.generateUrls(body, path, hostname);
                         }
                         return result;
                     }
@@ -186,21 +187,24 @@ public final class ConanUpload {
         /**
          * Implements uploading from the client to server repository storage.
          * @param body Request body with file data.
-         * @param filename Target file name.
+         * @param path Target path for the package.
          * @param hostname Server host name.
          * @return Respose result of this operation.
          */
-        private static CompletableFuture<Response> doUploading(final Publisher<ByteBuffer> body,
-            final String filename, final String hostname) {
+        private CompletableFuture<Response> generateUrls(final Publisher<ByteBuffer> body,
+            final String path, final String hostname) {
             return new PublisherAs(body).asciiString().thenApply(
                 str -> {
                     final JsonParser parser = Json.createParser(new StringReader(str));
                     parser.next();
                     final JsonObjectBuilder result = Json.createObjectBuilder();
                     for (final String key : parser.getObject().keySet()) {
+                        final String filepath = String.join(
+                            "", "/", path, ConanUpload.PKG_SRC_DIR, key
+                        );
                         final String url = String.join(
-                            "", ConanUpload.PROTOCOL, hostname, "/",
-                            filename, ConanUpload.PKG_SRC_DIR, key, "?signature=0"
+                            "", ConanUpload.PROTOCOL, hostname, filepath, "?signature=",
+                            this.tokenizer.generateToken(filepath, hostname)
                         );
                         result.add(key, url);
                     }
@@ -212,6 +216,63 @@ public final class ConanUpload {
                     );
                 }
             ).toCompletableFuture();
+        }
+    }
+
+    /**
+     * Conan HTTP PUT /{path/to/file}?signature={signature} REST API.
+     * @since 0.1
+     */
+    public static final class PutFile implements Slice {
+
+        /**
+         * Current Artipie storage instance.
+         */
+        private final Storage storage;
+
+        /**
+         * Tokenizer for repository items.
+         */
+        private final ItemTokenizer tokenizer;
+
+        /**
+         * Ctor.
+         * @param storage Current Artipie storage instance.
+         * @param tokenizer Tokenize repository items via JWT tokens.
+         */
+        public PutFile(final Storage storage, final ItemTokenizer tokenizer) {
+            this.storage = storage;
+            this.tokenizer = tokenizer;
+        }
+
+        @Override
+        public Response response(final String line,
+            final Iterable<Map.Entry<String, String>> headers, final Publisher<ByteBuffer> body) {
+            final String path = new RequestLineFrom(line).uri().getPath();
+            final String hostname = new RqHeaders.Single(headers, ConanUpload.HOST).asString();
+            final Optional<String> token = new RqParams(
+                new RequestLineFrom(line).uri().getQuery()
+            ).value("signature");
+            final Response response;
+            if (token.isPresent()) {
+                response = new AsyncResponse(
+                    this.tokenizer.authenticateToken(token.get()).thenApply(
+                        item -> {
+                            final Response resp;
+                            if (item.isPresent() && item.get().getHostname().equals(hostname)
+                                && item.get().getPath().equals(path)) {
+                                resp = new SliceUpload(this.storage).response(line, headers, body);
+                            } else {
+                                resp = new RsWithStatus(RsStatus.UNAUTHORIZED);
+                            }
+                            return resp;
+                        }
+                    )
+                );
+            } else {
+                response = new RsWithStatus(RsStatus.UNAUTHORIZED);
+            }
+            return response;
         }
     }
 }

@@ -27,16 +27,14 @@ import com.artipie.asto.Key;
 import com.artipie.asto.Storage;
 import com.artipie.asto.memory.InMemoryStorage;
 import com.artipie.asto.test.TestResource;
+import com.artipie.conan.ItemTokenizer;
 import com.artipie.http.auth.Authentication;
-import com.artipie.http.auth.TokenAuthentication;
-import com.artipie.http.auth.Tokens;
 import com.artipie.http.slice.LoggingSlice;
 import com.artipie.vertx.VertxSliceServer;
+import io.vertx.core.Vertx;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 import org.hamcrest.MatcherAssert;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
@@ -61,12 +59,12 @@ class ConanSliceITCase {
     /**
      * Artipie conan username for basic auth.
      */
-    public static final String SRV_USERNAME = "demo";
+    public static final String SRV_USERNAME = "demo_login";
 
     /**
      * Artipie conan password for basic auth.
      */
-    public static final String SRV_PASSWORD = "demo";
+    public static final String SRV_PASSWORD = "demo_pass";
 
     /**
      * Test auth token.
@@ -210,6 +208,143 @@ class ConanSliceITCase {
     }
 
     @Test
+    void conanDownloadPkgEnvAuthCheck() throws IOException, InterruptedException {
+        for (final String file : ConanSliceITCase.CONAN_TEST_PKG) {
+            new TestResource(String.join("/", ConanSliceITCase.SRV_PREFIX, file))
+                .saveTo(this.storage, new Key.From(file));
+        }
+        final Container.ExecResult user = this.cntn.execInContainer(
+            "conan", "user", "-c"
+        );
+        final Container.ExecResult result = this.cntn
+            .execInContainer(
+                "bash", "-c",
+                    String.format(
+                    "CONAN_LOGIN_USERNAME=%s CONAN_PASSWORD=%s conan download -r conan-test zlib/1.2.11@",
+                    ConanSliceITCase.SRV_USERNAME, ConanSliceITCase.SRV_PASSWORD
+                )
+            );
+        MatcherAssert.assertThat(
+            "conan user command must succeed", user.getExitCode() == 0
+        );
+        MatcherAssert.assertThat(
+            "conan download must succeed", result.getExitCode() == 0
+        );
+    }
+
+    @Test
+    void conanDownloadPkgEnvAuthFail() throws IOException, InterruptedException {
+        for (final String file : ConanSliceITCase.CONAN_TEST_PKG) {
+            new TestResource(String.join("/", ConanSliceITCase.SRV_PREFIX, file))
+                .saveTo(this.storage, new Key.From(file));
+        }
+        final Container.ExecResult user = this.cntn.execInContainer(
+            "conan", "user", "-c"
+        );
+        final String login = ConanSliceITCase.SRV_USERNAME.substring(
+            0, ConanSliceITCase.SRV_USERNAME.length() - 1
+        );
+        final String password = ConanSliceITCase.SRV_PASSWORD.substring(
+            0, ConanSliceITCase.SRV_PASSWORD.length() - 1
+        );
+        final Container.ExecResult result = this.cntn
+            .execInContainer(
+                "bash", "-c",
+                    String.format(
+                    "CONAN_LOGIN_USERNAME=%s CONAN_PASSWORD=%s conan download -r conan-test zlib/1.2.11@",
+                    login, password
+                )
+            );
+        MatcherAssert.assertThat(
+            "conan user command must succeed", user.getExitCode() == 0
+        );
+        MatcherAssert.assertThat(
+            "conan download must fail", result.getExitCode() != 0
+        );
+    }
+
+    @Test
+    void conanDownloadPkgEnvInvalidLogin() throws IOException, InterruptedException {
+        for (final String file : ConanSliceITCase.CONAN_TEST_PKG) {
+            new TestResource(String.join("/", ConanSliceITCase.SRV_PREFIX, file))
+                .saveTo(this.storage, new Key.From(file));
+        }
+        final Container.ExecResult user = this.cntn.execInContainer(
+            "conan", "user", "-c"
+        );
+        final String login = ConanSliceITCase.SRV_USERNAME.substring(
+            0, ConanSliceITCase.SRV_USERNAME.length() - 1
+        );
+        final Container.ExecResult result = this.cntn
+            .execInContainer(
+                "bash", "-c",
+                    String.format(
+                    "CONAN_LOGIN_USERNAME=%s CONAN_PASSWORD=%s conan download -r conan-test zlib/1.2.11@",
+                    login, ConanSliceITCase.SRV_PASSWORD
+                )
+            );
+        MatcherAssert.assertThat(
+            "conan user command must succeed", user.getExitCode() == 0
+        );
+        MatcherAssert.assertThat(
+            "conan download must fail", result.getExitCode() != 0
+        );
+    }
+
+    @Test
+    void conanDownloadPkgEnvInvalidPassword() throws IOException, InterruptedException {
+        for (final String file : ConanSliceITCase.CONAN_TEST_PKG) {
+            new TestResource(String.join("/", ConanSliceITCase.SRV_PREFIX, file))
+                .saveTo(this.storage, new Key.From(file));
+        }
+        final Container.ExecResult user = this.cntn.execInContainer(
+            "conan", "user", "-c"
+        );
+        final String password = ConanSliceITCase.SRV_PASSWORD.substring(
+            0, ConanSliceITCase.SRV_PASSWORD.length() - 1
+        );
+        final Container.ExecResult result = this.cntn
+            .execInContainer(
+                "bash", "-c",
+                    String.format(
+                    "CONAN_LOGIN_USERNAME=%s CONAN_PASSWORD=%s conan download -r conan-test zlib/1.2.11@",
+                    ConanSliceITCase.SRV_USERNAME, password
+                )
+            );
+        MatcherAssert.assertThat(
+            "conan user command must succeed", user.getExitCode() == 0
+        );
+        MatcherAssert.assertThat(
+            "conan download must fail", result.getExitCode() != 0
+        );
+    }
+
+    @Test
+    void conanDownloadPkgAsAnonFail() throws IOException, InterruptedException {
+        for (final String file : ConanSliceITCase.CONAN_TEST_PKG) {
+            new TestResource(String.join("/", ConanSliceITCase.SRV_PREFIX, file))
+                .saveTo(this.storage, new Key.From(file));
+        }
+        final Container.ExecResult user = this.cntn.execInContainer(
+            "conan", "user", "-c"
+        );
+        final Container.ExecResult result = this.cntn
+            .execInContainer(
+                "bash", "-c",
+                    String.format(
+                    "CONAN_LOGIN_USERNAME=%s CONAN_PASSWORD=%s conan download -r conan-test zlib/1.2.11@",
+                    "", ""
+                )
+            );
+        MatcherAssert.assertThat(
+            "conan user command must succeed", user.getExitCode() == 0
+        );
+        MatcherAssert.assertThat(
+            "conan download must fail", result.getExitCode() != 0
+        );
+    }
+
+    @Test
     void conanDownloadWrongPkgName() throws IOException, InterruptedException {
         for (final String file : ConanSliceITCase.CONAN_TEST_PKG) {
             new TestResource(String.join("/", ConanSliceITCase.SRV_PREFIX, file))
@@ -317,7 +452,8 @@ class ConanSliceITCase {
                     new Authentication.Single(
                         ConanSliceITCase.SRV_USERNAME, ConanSliceITCase.SRV_PASSWORD
                     ),
-                    new FakeAuthTokens()
+                    new ConanSlice.FakeAuthTokens(ConanSliceITCase.TOKEN, ConanSliceITCase.SRV_USERNAME),
+                    new ItemTokenizer(Vertx.vertx())
             )),
             ConanSliceITCase.CONAN_PORT
         );
@@ -366,31 +502,5 @@ class ConanSliceITCase {
                 .run("conan remote disable conan-center")
                 .build()
         );
-    }
-
-    /**
-     * Fake implementation of {@link Tokens}.
-     * @since 0.5
-     */
-    public static class FakeAuthTokens implements Tokens {
-
-        @Override
-        public TokenAuthentication auth() {
-            return tkn -> {
-                Optional<Authentication.User> res = Optional.empty();
-                if (ConanSliceITCase.TOKEN.equals(tkn)) {
-                    res = Optional.of(new Authentication.User(ConanSliceITCase.SRV_USERNAME));
-                }
-                return CompletableFuture.completedFuture(res);
-            };
-        }
-
-        @Override
-        public String generate(final Authentication.User user) {
-            if (user.name().equals(ConanSliceITCase.SRV_USERNAME)) {
-                return ConanSliceITCase.TOKEN;
-            }
-            throw new IllegalStateException(String.join("Unexpected user: ", user.name()));
-        }
     }
 }

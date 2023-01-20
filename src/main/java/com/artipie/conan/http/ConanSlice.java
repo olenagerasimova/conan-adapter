@@ -24,6 +24,7 @@
 package com.artipie.conan.http;
 
 import com.artipie.asto.Storage;
+import com.artipie.conan.ItemTokenizer;
 import com.artipie.http.Headers;
 import com.artipie.http.Slice;
 import com.artipie.http.auth.Action;
@@ -43,7 +44,6 @@ import com.artipie.http.rt.RtRulePath;
 import com.artipie.http.rt.SliceRoute;
 import com.artipie.http.slice.SliceDownload;
 import com.artipie.http.slice.SliceSimple;
-import com.artipie.http.slice.SliceUpload;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
@@ -75,11 +75,58 @@ public final class ConanSlice extends Slice.Wrap {
     };
 
     /**
+     * Fake implementation of {@link Tokens} for the single user.
+     * @since 0.5
+     */
+    public static final class FakeAuthTokens implements Tokens {
+
+        /**
+         * Token value for the user.
+         */
+        private final String token;
+
+        /**
+         * Username value for the user.
+         */
+        private final String username;
+
+        /**
+         * Ctor.
+         * @param token Token value for the user.
+         * @param username Username value for the user.
+         */
+        public FakeAuthTokens(final String token, final String username) {
+            this.token = token;
+            this.username = username;
+        }
+
+        @Override
+        public TokenAuthentication auth() {
+            return tkn -> {
+                Optional<Authentication.User> res = Optional.empty();
+                if (this.token.equals(tkn)) {
+                    res = Optional.of(new Authentication.User(this.username));
+                }
+                return CompletableFuture.completedFuture(res);
+            };
+        }
+
+        @Override
+        public String generate(final Authentication.User user) {
+            if (user.name().equals(this.username)) {
+                return this.token;
+            }
+            throw new IllegalStateException(String.join("Unexpected user: ", user.name()));
+        }
+    }
+
+    /**
      * Ctor.
      * @param storage Storage object.
+     * @param tokenizer Tokenizer for repository items.
      */
-    public ConanSlice(final Storage storage) {
-        this(storage, Permissions.FREE, Authentication.ANONYMOUS, ConanSlice.ANONYMOUS);
+    public ConanSlice(final Storage storage, final ItemTokenizer tokenizer) {
+        this(storage, Permissions.FREE, Authentication.ANONYMOUS, ConanSlice.ANONYMOUS, tokenizer);
     }
 
     /**
@@ -88,6 +135,7 @@ public final class ConanSlice extends Slice.Wrap {
      * @param perms Permissions.
      * @param auth Authentication parameters.
      * @param tokens User auth token generator.
+     * @param tokenizer Tokens provider for repository items.
      * @checkstyle MethodLengthCheck (200 lines)
      * @checkstyle ParameterNumberCheck (20 lines)
      */
@@ -96,7 +144,8 @@ public final class ConanSlice extends Slice.Wrap {
         final Storage storage,
         final Permissions perms,
         final Authentication auth,
-        final Tokens tokens
+        final Tokens tokens,
+        final ItemTokenizer tokenizer
     ) {
         super(
             new SliceRoute(
@@ -280,11 +329,15 @@ public final class ConanSlice extends Slice.Wrap {
                         new RtRule.ByPath(ConanUpload.UPLOAD_SRC_PATH.getPath()),
                         ByMethodsRule.Standard.POST
                     ),
-                    new ConanUpload.UploadUrls(storage)
+                    new BearerAuthSlice(
+                        new ConanUpload.UploadUrls(storage, tokenizer),
+                        tokens.auth(),
+                        new Permission.ByName(perms, Action.Standard.WRITE)
+                    )
                 ),
                 new RtRulePath(
                     new ByMethodsRule(RqMethod.PUT),
-                    new SliceUpload(storage)
+                    new ConanUpload.PutFile(storage, tokenizer)
                 )
             )
         );
