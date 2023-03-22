@@ -29,6 +29,7 @@ import com.artipie.asto.fs.FileStorage;
 import com.artipie.conan.http.ConanSlice;
 import com.artipie.http.auth.Authentication;
 import com.artipie.http.slice.LoggingSlice;
+import com.artipie.security.policy.PolicyByUsername;
 import com.artipie.vertx.VertxSliceServer;
 import io.vertx.reactivex.core.Vertx;
 import java.nio.file.Path;
@@ -83,14 +84,13 @@ public final class Cli {
             new LoggingSlice(
                 new ConanSlice(
                     storage,
-                    (user, action) -> {
-                        return Cli.USERNAME.equals(user.name());
-                    },
+                    new PolicyByUsername(Cli.USERNAME),
                     new Authentication.Single(
                         Cli.USERNAME, Cli.PASSWORD
                     ),
                     new ConanSlice.FakeAuthTokens(Cli.DEMO_TOKEN, Cli.USERNAME),
-                    tokenizer
+                    tokenizer,
+                    "*"
             )),
             Cli.CONAN_PORT
         );

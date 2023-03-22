@@ -30,6 +30,7 @@ import com.artipie.asto.test.TestResource;
 import com.artipie.conan.ItemTokenizer;
 import com.artipie.http.auth.Authentication;
 import com.artipie.http.slice.LoggingSlice;
+import com.artipie.security.policy.PolicyByUsername;
 import com.artipie.vertx.VertxSliceServer;
 import io.vertx.core.Vertx;
 import java.io.IOException;
@@ -448,12 +449,13 @@ class ConanSliceITCase {
             new LoggingSlice(
                 new ConanSlice(
                     this.storage,
-                    (user, action) -> ConanSliceITCase.SRV_USERNAME.equals(user.name()),
+                    new PolicyByUsername(ConanSliceITCase.SRV_USERNAME),
                     new Authentication.Single(
                         ConanSliceITCase.SRV_USERNAME, ConanSliceITCase.SRV_PASSWORD
                     ),
                     new ConanSlice.FakeAuthTokens(ConanSliceITCase.TOKEN, ConanSliceITCase.SRV_USERNAME),
-                    new ItemTokenizer(Vertx.vertx())
+                    new ItemTokenizer(Vertx.vertx()),
+                    "test"
             )),
             ConanSliceITCase.CONAN_PORT
         );

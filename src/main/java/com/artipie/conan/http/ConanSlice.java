@@ -27,11 +27,10 @@ import com.artipie.asto.Storage;
 import com.artipie.conan.ItemTokenizer;
 import com.artipie.http.Headers;
 import com.artipie.http.Slice;
-import com.artipie.http.auth.Action;
+import com.artipie.http.auth.AuthUser;
 import com.artipie.http.auth.Authentication;
-import com.artipie.http.auth.BearerAuthSlice;
-import com.artipie.http.auth.Permission;
-import com.artipie.http.auth.Permissions;
+import com.artipie.http.auth.BearerAuthzSlice;
+import com.artipie.http.auth.OperationControl;
 import com.artipie.http.auth.TokenAuthentication;
 import com.artipie.http.auth.Tokens;
 import com.artipie.http.rq.RqMethod;
@@ -44,6 +43,9 @@ import com.artipie.http.rt.RtRulePath;
 import com.artipie.http.rt.SliceRoute;
 import com.artipie.http.slice.SliceDownload;
 import com.artipie.http.slice.SliceSimple;
+import com.artipie.security.perms.Action;
+import com.artipie.security.perms.AdapterBasicPermission;
+import com.artipie.security.policy.Policy;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
@@ -56,6 +58,11 @@ import java.util.concurrent.CompletableFuture;
 public final class ConanSlice extends Slice.Wrap {
 
     /**
+     * Test context name for AuthUser.
+     */
+    private static final String TEST_CONTEXT = "test";
+
+    /**
      * Anonymous tokens.
      */
     private static final Tokens ANONYMOUS = new Tokens() {
@@ -64,12 +71,12 @@ public final class ConanSlice extends Slice.Wrap {
         public TokenAuthentication auth() {
             return token ->
                 CompletableFuture.completedFuture(
-                    Optional.of(new Authentication.User("anonymous"))
+                    Optional.of(new AuthUser("anonymous", ConanSlice.TEST_CONTEXT))
                 );
         }
 
         @Override
-        public String generate(final Authentication.User user) {
+        public String generate(final AuthUser user) {
             return "123qwe";
         }
     };
@@ -103,16 +110,16 @@ public final class ConanSlice extends Slice.Wrap {
         @Override
         public TokenAuthentication auth() {
             return tkn -> {
-                Optional<Authentication.User> res = Optional.empty();
+                Optional<AuthUser> res = Optional.empty();
                 if (this.token.equals(tkn)) {
-                    res = Optional.of(new Authentication.User(this.username));
+                    res = Optional.of(new AuthUser(this.username, ConanSlice.TEST_CONTEXT));
                 }
                 return CompletableFuture.completedFuture(res);
             };
         }
 
         @Override
-        public String generate(final Authentication.User user) {
+        public String generate(final AuthUser user) {
             if (user.name().equals(this.username)) {
                 return this.token;
             }
@@ -126,26 +133,28 @@ public final class ConanSlice extends Slice.Wrap {
      * @param tokenizer Tokenizer for repository items.
      */
     public ConanSlice(final Storage storage, final ItemTokenizer tokenizer) {
-        this(storage, Permissions.FREE, Authentication.ANONYMOUS, ConanSlice.ANONYMOUS, tokenizer);
+        this(storage, Policy.FREE, Authentication.ANONYMOUS, ConanSlice.ANONYMOUS, tokenizer, "*");
     }
 
     /**
      * Ctor.
      * @param storage Storage object.
-     * @param perms Permissions.
+     * @param policy Access policy.
      * @param auth Authentication parameters.
      * @param tokens User auth token generator.
      * @param tokenizer Tokens provider for repository items.
+     * @param name Repository name.
      * @checkstyle MethodLengthCheck (200 lines)
      * @checkstyle ParameterNumberCheck (20 lines)
      */
     @SuppressWarnings("PMD.ExcessiveMethodLength")
     public ConanSlice(
         final Storage storage,
-        final Permissions perms,
+        final Policy<?> policy,
         final Authentication auth,
         final Tokens tokens,
-        final ItemTokenizer tokenizer
+        final ItemTokenizer tokenizer,
+        final String name
     ) {
         super(
             new SliceRoute(
@@ -166,10 +175,12 @@ public final class ConanSlice extends Slice.Wrap {
                         new RtRule.ByPath(new PathWrap.CredsCheck().getPath()),
                         ByMethodsRule.Standard.GET
                     ),
-                    new BearerAuthSlice(
+                    new BearerAuthzSlice(
                         new UsersEntity.CredsCheck(),
                         tokens.auth(),
-                        new Permission.ByName(perms, Action.Standard.READ)
+                        new OperationControl(
+                            policy, new AdapterBasicPermission(name, Action.Standard.READ)
+                        )
                     )
                 ),
                 new RtRulePath(
@@ -181,10 +192,12 @@ public final class ConanSlice extends Slice.Wrap {
                         new RtRule.ByPath(new PathWrap.DigestForPkgBin().getPath()),
                         ByMethodsRule.Standard.GET
                     ),
-                    new BearerAuthSlice(
+                    new BearerAuthzSlice(
                         new ConansEntity.DigestForPkgBin(storage),
                         tokens.auth(),
-                        new Permission.ByName(perms, Action.Standard.READ)
+                        new OperationControl(
+                            policy, new AdapterBasicPermission(name, Action.Standard.READ)
+                        )
                     )
                 ),
                 new RtRulePath(
@@ -192,18 +205,22 @@ public final class ConanSlice extends Slice.Wrap {
                         new RtRule.ByPath(new PathWrap.DigestForPkgSrc().getPath()),
                         ByMethodsRule.Standard.GET
                     ),
-                    new BearerAuthSlice(
+                    new BearerAuthzSlice(
                         new ConansEntity.DigestForPkgSrc(storage),
                         tokens.auth(),
-                        new Permission.ByName(perms, Action.Standard.READ)
+                        new OperationControl(
+                            policy, new AdapterBasicPermission(name, Action.Standard.READ)
+                        )
                     )
                 ),
                 new RtRulePath(
                     new RtRule.ByPath(new PathWrap.SearchSrcPkg().getPath()),
-                    new BearerAuthSlice(
+                    new BearerAuthzSlice(
                         new ConansEntity.GetSearchSrcPkg(storage),
                         tokens.auth(),
-                        new Permission.ByName(perms, Action.Standard.READ)
+                        new OperationControl(
+                            policy, new AdapterBasicPermission(name, Action.Standard.READ)
+                        )
                     )
                 ),
                 new RtRulePath(
@@ -211,10 +228,12 @@ public final class ConanSlice extends Slice.Wrap {
                         new RtRule.ByPath(new PathWrap.DownloadBin().getPath()),
                         ByMethodsRule.Standard.GET
                     ),
-                    new BearerAuthSlice(
+                    new BearerAuthzSlice(
                         new ConansEntity.DownloadBin(storage),
                         tokens.auth(),
-                        new Permission.ByName(perms, Action.Standard.READ)
+                        new OperationControl(
+                            policy, new AdapterBasicPermission(name, Action.Standard.READ)
+                        )
                     )
                 ),
                 new RtRulePath(
@@ -222,10 +241,12 @@ public final class ConanSlice extends Slice.Wrap {
                         new RtRule.ByPath(new PathWrap.DownloadSrc().getPath()),
                         ByMethodsRule.Standard.GET
                     ),
-                    new BearerAuthSlice(
+                    new BearerAuthzSlice(
                         new ConansEntity.DownloadSrc(storage),
                         tokens.auth(),
-                        new Permission.ByName(perms, Action.Standard.READ)
+                        new OperationControl(
+                            policy, new AdapterBasicPermission(name, Action.Standard.READ)
+                        )
                     )
                 ),
                 new RtRulePath(
@@ -233,10 +254,12 @@ public final class ConanSlice extends Slice.Wrap {
                         new RtRule.ByPath(new PathWrap.SearchBinPkg().getPath()),
                         ByMethodsRule.Standard.GET
                     ),
-                    new BearerAuthSlice(
+                    new BearerAuthzSlice(
                         new ConansEntity.GetSearchBinPkg(storage),
                         tokens.auth(),
-                        new Permission.ByName(perms, Action.Standard.READ)
+                        new OperationControl(
+                            policy, new AdapterBasicPermission(name, Action.Standard.READ)
+                        )
                     )
                 ),
                 new RtRulePath(
@@ -244,10 +267,12 @@ public final class ConanSlice extends Slice.Wrap {
                         new RtRule.ByPath(new PathWrap.PkgBinInfo().getPath()),
                         ByMethodsRule.Standard.GET
                     ),
-                    new BearerAuthSlice(
+                    new BearerAuthzSlice(
                         new ConansEntity.GetPkgInfo(storage),
                         tokens.auth(),
-                        new Permission.ByName(perms, Action.Standard.READ)
+                        new OperationControl(
+                            policy, new AdapterBasicPermission(name, Action.Standard.READ)
+                        )
                     )
                 ),
                 new RtRulePath(
@@ -255,10 +280,12 @@ public final class ConanSlice extends Slice.Wrap {
                         new RtRule.ByPath(new PathWrap.PkgBinLatest().getPath()),
                         ByMethodsRule.Standard.GET
                     ),
-                    new BearerAuthSlice(
+                    new BearerAuthzSlice(
                         new ConansEntityV2.PkgBinLatest(storage),
                         tokens.auth(),
-                        new Permission.ByName(perms, Action.Standard.READ)
+                        new OperationControl(
+                            policy, new AdapterBasicPermission(name, Action.Standard.READ)
+                        )
                     )
                 ),
                 new RtRulePath(
@@ -266,10 +293,12 @@ public final class ConanSlice extends Slice.Wrap {
                         new RtRule.ByPath(new PathWrap.PkgSrcLatest().getPath()),
                         ByMethodsRule.Standard.GET
                     ),
-                    new BearerAuthSlice(
+                    new BearerAuthzSlice(
                         new ConansEntityV2.PkgSrcLatest(storage),
                         tokens.auth(),
-                        new Permission.ByName(perms, Action.Standard.READ)
+                        new OperationControl(
+                            policy, new AdapterBasicPermission(name, Action.Standard.READ)
+                        )
                     )
                 ),
                 new RtRulePath(
@@ -277,10 +306,12 @@ public final class ConanSlice extends Slice.Wrap {
                         new RtRule.ByPath(new PathWrap.PkgBinFile().getPath()),
                         ByMethodsRule.Standard.GET
                     ),
-                    new BearerAuthSlice(
+                    new BearerAuthzSlice(
                         new ConansEntityV2.PkgBinFile(storage),
                         tokens.auth(),
-                        new Permission.ByName(perms, Action.Standard.READ)
+                        new OperationControl(
+                            policy, new AdapterBasicPermission(name, Action.Standard.READ)
+                        )
                     )
                 ),
                 new RtRulePath(
@@ -288,10 +319,12 @@ public final class ConanSlice extends Slice.Wrap {
                         new RtRule.ByPath(new PathWrap.PkgBinFiles().getPath()),
                         ByMethodsRule.Standard.GET
                     ),
-                    new BearerAuthSlice(
+                    new BearerAuthzSlice(
                         new ConansEntityV2.PkgBinFiles(storage),
                         tokens.auth(),
-                        new Permission.ByName(perms, Action.Standard.READ)
+                        new OperationControl(
+                            policy, new AdapterBasicPermission(name, Action.Standard.READ)
+                        )
                     )
                 ),
                 new RtRulePath(
@@ -299,10 +332,12 @@ public final class ConanSlice extends Slice.Wrap {
                         new RtRule.ByPath(new PathWrap.PkgSrcFile().getPath()),
                         ByMethodsRule.Standard.GET
                     ),
-                    new BearerAuthSlice(
+                    new BearerAuthzSlice(
                         new ConansEntityV2.PkgSrcFile(storage),
                         tokens.auth(),
-                        new Permission.ByName(perms, Action.Standard.READ)
+                        new OperationControl(
+                            policy, new AdapterBasicPermission(name, Action.Standard.READ)
+                        )
                     )
                 ),
                 new RtRulePath(
@@ -310,18 +345,22 @@ public final class ConanSlice extends Slice.Wrap {
                         new RtRule.ByPath(new PathWrap.PkgSrcFiles().getPath()),
                         ByMethodsRule.Standard.GET
                     ),
-                    new BearerAuthSlice(
+                    new BearerAuthzSlice(
                         new ConansEntityV2.PkgSrcFiles(storage),
                         tokens.auth(),
-                        new Permission.ByName(perms, Action.Standard.READ)
+                        new OperationControl(
+                            policy, new AdapterBasicPermission(name, Action.Standard.READ)
+                        )
                     )
                 ),
                 new RtRulePath(
                     new ByMethodsRule(RqMethod.GET),
-                    new BearerAuthSlice(
+                    new BearerAuthzSlice(
                         new SliceDownload(storage),
                         tokens.auth(),
-                        new Permission.ByName(perms, Action.Standard.READ)
+                        new OperationControl(
+                            policy, new AdapterBasicPermission(name, Action.Standard.READ)
+                        )
                     )
                 ),
                 new RtRulePath(
@@ -329,10 +368,12 @@ public final class ConanSlice extends Slice.Wrap {
                         new RtRule.ByPath(ConanUpload.UPLOAD_SRC_PATH.getPath()),
                         ByMethodsRule.Standard.POST
                     ),
-                    new BearerAuthSlice(
+                    new BearerAuthzSlice(
                         new ConanUpload.UploadUrls(storage, tokenizer),
                         tokens.auth(),
-                        new Permission.ByName(perms, Action.Standard.WRITE)
+                        new OperationControl(
+                            policy, new AdapterBasicPermission(name, Action.Standard.WRITE)
+                        )
                     )
                 ),
                 new RtRulePath(
