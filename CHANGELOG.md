@@ -1,10 +1,15 @@
-# v0.3
-- 44c7194 Conan upload authentication + more auth tests (#51)
-- 5ef885c Basic authentication support for conan client. Upload auth is still WIP (#50)
-- 8c07a6d Refreshing dependencies versions (#49)
-- 3e79bdb Fixed intermittent test fails (#47)
-- cac9089 chore: update license year (#46)
-- d8fd152 chore: update license action (#45)
+# v0.3.1
+-  e64ed51 Updated changelog for v0.3.1
+-  cd352c1 Testing with conan v1.60.2
+-  bc3b476 Updated artipie dependencies.
+-  19237ab Integrate new permissions model of Artipie (#54)
+# v0.3.0
+-  44c7194 Conan upload authentication + more auth tests (#51)
+-  5ef885c Basic authentication support for conan client. Upload auth is still WIP (#50)
+-  8c07a6d Refreshing dependencies versions (#49)
+-  3e79bdb Fixed intermittent test fails (#47)
+-  cac9089 chore: update license year (#46)
+-  d8fd152 chore: update license action (#45)
 # v0.2
 -  245271b Updated changelog for v0.2. (#43)
 -  6acd041 Updated dependencies (#42)

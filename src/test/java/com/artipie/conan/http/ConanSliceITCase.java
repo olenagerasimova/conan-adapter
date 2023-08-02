@@ -494,7 +494,7 @@ class ConanSliceITCase {
                 .run("apt clean -y && apt update -y -o APT::Update::Error-Mode=any")
                 .run("apt install --no-install-recommends -y python3-pip curl g++ git make cmake")
                 .run("pip3 install -U pip setuptools")
-                .run("pip3 install -U conan==1.56.0")
+                .run("pip3 install -U conan==1.60.2")
                 .run("conan profile new --detect default")
                 .run("conan profile update settings.compiler.libcxx=libstdc++11 default")
                 .run("conan remote add conancenter https://center.conan.io False --force")
