@@ -1,3 +1,5 @@
+# v0.3.2
+-  a7ef6e5 Found compatibility issue with recent versions of conan client. Added extra test on re-uploading
 # v0.3.1
 -  e64ed51 Updated changelog for v0.3.1
 -  cd352c1 Testing with conan v1.60.2

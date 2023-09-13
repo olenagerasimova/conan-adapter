@@ -99,6 +99,11 @@ public final class ConanUpload {
     private static final String PKG_SRC_DIR = "/0/export/";
 
     /**
+     * Subdir for package binary.
+     */
+    private static final String PKG_BIN_DIR = "/0/";
+
+    /**
      * Ctor is hidden.
      */
     private ConanUpload() { }
@@ -199,8 +204,19 @@ public final class ConanUpload {
                     parser.next();
                     final JsonObjectBuilder result = Json.createObjectBuilder();
                     for (final String key : parser.getObject().keySet()) {
+                        final String pkgnew = "/_/_/packages/";
+                        final int ipkg = path.indexOf(pkgnew);
+                        final String fpath;
+                        final String pkgdir;
+                        if (ipkg > 0) {
+                            fpath = path.replace(pkgnew, "/_/_/0/package/");
+                            pkgdir = ConanUpload.PKG_BIN_DIR;
+                        } else {
+                            fpath = path;
+                            pkgdir = ConanUpload.PKG_SRC_DIR;
+                        }
                         final String filepath = String.join(
-                            "", "/", path, ConanUpload.PKG_SRC_DIR, key
+                            "", "/", fpath, pkgdir, key
                         );
                         final String url = String.join(
                             "", ConanUpload.PROTOCOL, hostname, filepath, "?signature=",

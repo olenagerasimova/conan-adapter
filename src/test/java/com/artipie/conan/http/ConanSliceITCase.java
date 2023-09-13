@@ -186,7 +186,7 @@ class ConanSliceITCase {
     @Test
     void pingConanServer() throws IOException, InterruptedException {
         final Container.ExecResult result = this.cntn.execInContainer(
-            "curl", "--fail", "--show-error",
+            "curl", "--verbose", "--fail", "--show-error",
             "http://host.testcontainers.internal:9300/v1/ping"
         );
         MatcherAssert.assertThat(
@@ -425,7 +425,7 @@ class ConanSliceITCase {
                 .saveTo(this.storage, new Key.From(file));
         }
         final Container.ExecResult install = this.cntn.execInContainer(
-            "conan", "install", "zlib/1.2.11@", "-r", "conan-test", "-b"
+            "conan", "install", "zlib/1.2.11@", "-r", "conan-test"
         );
         final Container.ExecResult upload = this.cntn.execInContainer(
             "conan", "upload", "zlib/1.2.11@", "-r", "conan-test", "--all"
@@ -435,6 +435,46 @@ class ConanSliceITCase {
         );
         MatcherAssert.assertThat(
             "conan upload must succeed", upload.getExitCode() == 0
+        );
+    }
+
+    @Test
+    void testPackageReupload() throws IOException, InterruptedException {
+        final Container.ExecResult enable = this.cntn.execInContainer(
+            "conan", "remote", "enable", "conancenter"
+        );
+        final Container.ExecResult instcenter = this.cntn.execInContainer(
+            "conan", "install", "zlib/1.2.11@", "-r", "conancenter"
+        );
+        final Container.ExecResult upload = this.cntn.execInContainer(
+            "conan", "upload", "zlib/1.2.11@", "-r", "conan-test", "--all"
+        );
+        final Container.ExecResult rmcache = this.cntn.execInContainer(
+            "rm", "-rfv", "/root/.conan/data"
+        );
+        final Container.ExecResult disable = this.cntn.execInContainer(
+            "conan", "remote", "disable", "conancenter"
+        );
+        final Container.ExecResult insttest = this.cntn.execInContainer(
+            "conan", "install", "zlib/1.2.11@", "-r", "conan-test"
+        );
+        MatcherAssert.assertThat(
+            "conan remote enable must succeed", enable.getExitCode() == 0
+        );
+        MatcherAssert.assertThat(
+            "conan install (conancenter) must succeed", instcenter.getExitCode() == 0
+        );
+        MatcherAssert.assertThat(
+            "conan upload must succeed", upload.getExitCode() == 0
+        );
+        MatcherAssert.assertThat(
+            "rm for conan cache must succeed", rmcache.getExitCode() == 0
+        );
+        MatcherAssert.assertThat(
+            "conan remote disable must succeed", disable.getExitCode() == 0
+        );
+        MatcherAssert.assertThat(
+            "conan install (conan-test) must succeed", insttest.getExitCode() == 0
         );
     }
 
@@ -499,7 +539,7 @@ class ConanSliceITCase {
                 .run("conan profile update settings.compiler.libcxx=libstdc++11 default")
                 .run("conan remote add conancenter https://center.conan.io False --force")
                 .run("conan remote add conan-center https://conan.bintray.com False --force")
-                .run("conan remote add conan-test http://host.testcontainers.internal:9300 False")
+                .run("conan remote add conan-test http://host.testcontainers.internal:9300 False --force")
                 .run("conan remote disable conancenter")
                 .run("conan remote disable conan-center")
                 .build()
